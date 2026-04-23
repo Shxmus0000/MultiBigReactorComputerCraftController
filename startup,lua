@@ -1,0 +1,6 @@
+shell.run("update_reactor.lua")
+
+while true do
+    shell.run("src/reactorController.lua")
+    sleep(2)
+end

@@ -18,6 +18,7 @@ Supports:
 Run in ComputerCraft:
 
 wget https://raw.githubusercontent.com/Shxmus0000/MultiBigReactorComputerCraftController/main/install.lua install
+
 install
 
 ## Run

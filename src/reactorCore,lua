@@ -1,0 +1,51 @@
+local pid = dofile("src/pid.lua")
+local renderer = dofile("src/monitorRenderer.lua")
+
+local Core = {}
+
+function Core.init(r)
+    r.state = {
+        stored = 0,
+        lastRFT = 0,
+        capacity = 1,
+        rod = 0,
+        enabled = false
+    }
+
+    r.pid = pid.new()
+    r.bufferMin = r.bufferMin or 30
+    r.bufferMax = r.bufferMax or 70
+end
+
+local function readStats(r)
+    local re = r.reactor
+
+    r.state.stored = re.getEnergyStored()
+    r.state.lastRFT = re.getEnergyProducedLastTick()
+    r.state.capacity = re.getEnergyCapacity()
+end
+
+local function control(r)
+    local pct = (r.state.stored / r.state.capacity) * 100
+
+    local target = (r.bufferMin + r.bufferMax) / 2
+    local error = target - pct
+
+    local rod = pid.step(r.pid, error)
+
+    rod = math.max(0, math.min(100, rod))
+
+    r.reactor.setActive(true)
+    r.reactor.setAllControlRodLevels(rod)
+end
+
+function Core.update(r)
+    readStats(r)
+    control(r)
+end
+
+function Core.render(r)
+    renderer.draw(r)
+end
+
+return Core

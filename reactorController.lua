@@ -1,134 +1,292 @@
--- Multi-Reactor Controller (GitHub Version)
--- Supports Big / Extreme / Bigger Reactors
+local version = "1.0-MULTI"
+local tag = "reactorConfig"
 
-local monitor = peripheral.find("monitor")
-if not monitor then error("No monitor found") end
+dofile("/usr/apis/touchpoint.lua")
 
-monitor.setTextScale(0.5)
-
--- ===== REACTORS =====
+-- =========================
+-- GLOBAL STATE
+-- =========================
 local reactors = {}
+local reactorVersion = "Unknown"
 
-local function detectType(r)
-    if r.getEnergyStats then return "Extreme" end
-    if r.battery then return "Bigger" end
-    return "Big"
+local mon, monSide
+local sizex, sizey, dim, oo, offy
+
+local btnOn, btnOff, invalidDim
+local minb, maxb
+
+local storedLastTick, storedThisTick, lastRFT = 0,0,0
+local fuelTemp, caseTemp, fuelUsage, waste, capacity = 0,0,0,0,1
+local rod = 0
+local rfLost = 0
+
+local displayingGraphMenu = false
+local secondsToAverage = 2
+
+-- =========================
+-- AVERAGES
+-- =========================
+local storedThisTickValues = {}
+local lastRFTValues = {}
+local rodValues = {}
+local fuelUsageValues = {}
+local wasteValues = {}
+local fuelTempValues = {}
+local caseTempValues = {}
+local rfLostValues = {}
+
+local averageStoredThisTick = 0
+local averageLastRFT = 0
+local averageRod = 0
+local averageFuelUsage = 0
+local averageWaste = 0
+local averageFuelTemp = 0
+local averageCaseTemp = 0
+local averageRfLost = 0
+
+-- =========================
+-- GRAPH SYSTEM
+-- =========================
+local graphs =
+{
+    "Energy Buffer",
+    "Control Level",
+    "Temperatures",
+}
+
+local XOffs =
+{
+    { 4, true},
+    {27, true},
+    {50, true},
+}
+
+local graphsToDraw = {}
+
+-- =========================
+-- UTIL
+-- =========================
+local function calculateAverage(array)
+    local sum = 0
+    if #array == 0 then return 0 end
+    for _, v in ipairs(array) do
+        sum = sum + v
+    end
+    return sum / #array
 end
 
-local function wrap(name)
-    local r = peripheral.wrap(name)
-    local type = detectType(r)
-
-    local obj = {peripheral = r, type = type, rod = 0}
-
-    function obj.energy()
-        if type == "Extreme" then
-            return r.getEnergyStats().energyStored
-        elseif type == "Bigger" then
-            return r.battery().stored()
-        else
-            return r.getEnergyStored()
-        end
-    end
-
-    function obj.rf()
-        if type == "Extreme" then
-            return r.getEnergyStats().energyProducedLastTick
-        elseif type == "Bigger" then
-            return r.battery().producedLastTick()
-        else
-            return r.getEnergyProducedLastTick() or 0
-        end
-    end
-
-    function obj.setActive(state)
-        r.setActive(state)
-    end
-
-    function obj.setRod(v)
-        v = math.max(0, math.min(100, v))
-        if type == "Bigger" then
-            r.getControlRod(0).setLevel(v)
-        else
-            r.setAllControlRodLevels(v)
-        end
-        obj.rod = v
-    end
-
-    return obj
+local function format(num)
+    if (num >= 1e9) then return string.format("%7.2fG", num/1e9)
+    elseif (num >= 1e6) then return string.format("%7.2fM", num/1e6)
+    elseif (num >= 1e3) then return string.format("%7.2fK", num/1e3)
+    elseif (num >= 1) then return string.format("%7.2f", num)
+    else return string.format("%7.2f", 0) end
 end
 
-for _,n in pairs(peripheral.getNames()) do
-    if peripheral.getType(n):lower():find("reactor") then
-        table.insert(reactors, wrap(n))
+local function lerp(a,b,t)
+    t = math.max(0, math.min(1,t))
+    return a + (b-a)*t
+end
+
+-- =========================
+-- REACTOR DETECTION
+-- =========================
+local function getPeripheral(name)
+    for _,v in pairs(peripheral.getNames()) do
+        if peripheral.getType(v) == name then
+            return v
+        end
     end
 end
 
-if #reactors == 0 then error("No reactors found") end
+local function detectReactors()
+    reactors = {}
 
--- ===== SIMPLE AUTO CONTROL =====
-local AUTO_MIN = 200000
-local AUTO_MAX = 800000
-local auto = true
+    local types = {
+        "bigger-reactor",
+        "BiggerReactors_Reactor",
+        "BigReactors-Reactor"
+    }
 
-local function update()
-    for _,r in ipairs(reactors) do
-        local e = r.energy()
-
-        if auto then
-            if e < AUTO_MIN then
-                r.setActive(true)
-                r.setRod(r.rod - 2)
-            elseif e > AUTO_MAX then
-                r.setRod(r.rod + 2)
+    for _,t in ipairs(types) do
+        for _,name in pairs(peripheral.getNames()) do
+            if peripheral.getType(name) == t then
+                table.insert(reactors, peripheral.wrap(name))
             end
         end
     end
-end
 
--- ===== DRAW =====
-local function draw()
-    monitor.setBackgroundColor(colors.black)
-    monitor.clear()
-
-    local w,h = monitor.getSize()
-    local pw = math.floor(w / #reactors)
-
-    for i,r in ipairs(reactors) do
-        local x = (i-1)*pw + 1
-
-        monitor.setCursorPos(x,2)
-        monitor.write("R"..i.." ["..r.type.."]")
-
-        monitor.setCursorPos(x,3)
-        monitor.write("RF/t: "..math.floor(r.rf() or 0))
-
-        monitor.setCursorPos(x,4)
-        monitor.write("Energy: "..math.floor(r.energy() or 0))
-
-        monitor.setCursorPos(x,5)
-        monitor.write("Rod: "..math.floor(r.rod))
+    if #reactors > 0 then
+        reactorVersion = "Multi Reactor System ("..#reactors..")"
+        return true
     end
 
-    monitor.setCursorPos(2,h)
-    monitor.write("[AUTO: "..tostring(auto).." ]")
+    return false
 end
 
--- ===== INPUT =====
-local function click(x,y)
-    local _,h = monitor.getSize()
-    if y == h then
-        auto = not auto
+-- =========================
+-- MULTI REACTOR STATS
+-- =========================
+local function updateStats()
+    storedLastTick = storedThisTick
+
+    local totalEnergy = 0
+    local totalProduced = 0
+    local totalFuel = 0
+    local totalWaste = 0
+    local totalTempFuel = 0
+    local totalTempCase = 0
+    local rodSum = 0
+
+    capacity = 0
+
+    for _,r in ipairs(reactors) do
+
+        if r.getEnergyStats then
+            local bat = r.getEnergyStats()
+            totalEnergy = totalEnergy + bat.energyStored
+            totalProduced = totalProduced + bat.energyProducedLastTick
+            capacity = capacity + bat.energyCapacity
+        elseif r.battery then
+            totalEnergy = totalEnergy + r.battery().stored()
+            totalProduced = totalProduced + r.battery().producedLastTick()
+            capacity = capacity + r.battery().capacity()
+        end
+
+        if r.getFuelStats then
+            local f = r.getFuelStats()
+            totalFuel = totalFuel + (f.fuelConsumedLastTick or 0)
+        elseif r.fuelTank then
+            totalFuel = totalFuel + (r.fuelTank().burnedLastTick() or 0)
+        end
+
+        if r.getWasteAmount then
+            totalWaste = totalWaste + r.getWasteAmount()
+        elseif r.fuelTank then
+            totalWaste = totalWaste + r.fuelTank().waste()
+        end
+
+        if r.getFuelTemperature then
+            totalTempFuel = totalTempFuel + r.getFuelTemperature()
+            totalTempCase = totalTempCase + r.getCasingTemperature()
+        end
+
+        rodSum = rodSum + (r.getControlRodLevel and r.getControlRodLevel(0) or 0)
+    end
+
+    storedThisTick = totalEnergy
+    lastRFT = totalProduced
+    fuelUsage = totalFuel
+    waste = totalWaste
+
+    fuelTemp = totalTempFuel / #reactors
+    caseTemp = totalTempCase / #reactors
+    rod = rodSum / #reactors
+
+    rfLost = lastRFT + storedLastTick - storedThisTick
+
+    -- averages
+    table.insert(storedThisTickValues, storedThisTick)
+    table.insert(lastRFTValues, lastRFT)
+    table.insert(rodValues, rod)
+    table.insert(fuelUsageValues, fuelUsage)
+    table.insert(wasteValues, waste)
+    table.insert(fuelTempValues, fuelTemp)
+    table.insert(caseTempValues, caseTemp)
+    table.insert(rfLostValues, rfLost)
+
+    local maxIterations = 20 * secondsToAverage
+    while #storedThisTickValues > maxIterations do
+        table.remove(storedThisTickValues,1)
+        table.remove(lastRFTValues,1)
+        table.remove(rodValues,1)
+        table.remove(fuelUsageValues,1)
+        table.remove(wasteValues,1)
+        table.remove(fuelTempValues,1)
+        table.remove(caseTempValues,1)
+        table.remove(rfLostValues,1)
+    end
+
+    averageStoredThisTick = calculateAverage(storedThisTickValues)
+    averageLastRFT = calculateAverage(lastRFTValues)
+    averageRod = calculateAverage(rodValues)
+    averageFuelUsage = calculateAverage(fuelUsageValues)
+    averageWaste = calculateAverage(wasteValues)
+    averageFuelTemp = calculateAverage(fuelTempValues)
+    averageCaseTemp = calculateAverage(caseTempValues)
+    averageRfLost = calculateAverage(rfLostValues)
+end
+
+-- =========================
+-- CONTROL ALL REACTORS
+-- =========================
+local function setRods(level)
+    level = math.max(0, math.min(100, level))
+    for _,r in ipairs(reactors) do
+        if r.setAllControlRodLevels then
+            r.setAllControlRodLevels(level)
+        elseif r.setControlRodLevel then
+            r.setControlRodLevel(0, level)
+        end
     end
 end
 
--- ===== LOOP =====
-while true do
-    update()
-    draw()
+local pid = {
+    Kp = -0.08,
+    Ki = -0.0015,
+    Kd = -0.01,
+    integral = 0,
+    lastError = 0
+}
 
-    local e,_,x,y = os.pullEvent("monitor_touch")
-    click(x,y)
+local function iteratePID(error)
+    local P = pid.Kp * error
+    pid.integral = math.max(-100, math.min(100, pid.integral + pid.Ki * error))
+    local D = pid.Kd * (error - pid.lastError)
 
-    sleep(0.2)
+    pid.lastError = error
+
+    return math.max(0, math.min(100, P + pid.integral + D))
 end
+
+local function updateRods()
+    if not btnOn then return end
+
+    local targetRF = (minb + maxb)/2 / 100 * capacity
+    local error = targetRF - storedThisTick
+
+    local rodLevel = iteratePID(error)
+    setRods(rodLevel)
+end
+
+-- =========================
+-- INIT / MAIN
+-- =========================
+local function main()
+    term.clear()
+    term.setCursorPos(1,1)
+
+    print("Detecting reactors...")
+    while not detectReactors() do
+        print("No reactors found...")
+        sleep(1)
+    end
+
+    print("Found "..#reactors.." reactors")
+
+    btnOn = true
+    btnOff = false
+    minb = 30
+    maxb = 70
+
+    print("Starting controller...")
+    sleep(1)
+
+    while true do
+        updateStats()
+        updateRods()
+        sleep(0.25)
+    end
+end
+
+main()

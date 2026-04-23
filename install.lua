@@ -1,31 +1,27 @@
-local base = "https://raw.githubusercontent.com/Shxmus0000/MultiBigReactorComputerCraftController/main/"
+local base = "https://raw.githubusercontent.com/Shxmus0000/MultiBigReactorComputerCraftController/main"
 
 local files = {
-    ["reactorController.lua"] = base .. "reactorController.lua",
-    ["update_reactor.lua"] = base .. "update_reactor.lua",
-    ["usr/apis/touchpoint.lua"] = base .. "usr/apis/touchpoint.lua",
+    "/reactorController.lua",
+    "/update_reactor.lua",
+    "/usr/apis/touchpoint.lua"
 }
 
 print("Installing Multi Reactor Controller...")
 
-for path, url in pairs(files) do
-    local dir = fs.getDir(path)
-    if dir and dir ~= "" then
-        fs.makeDir(dir)
+for _,file in pairs(files) do
+    local url = base .. file
+
+    local res = http.get(url)
+    if not res then
+        error("Failed: " .. file)
     end
 
-    print("Downloading " .. path)
+    local f = fs.open(file, "w")
+    f.write(res.readAll())
+    f.close()
+    res.close()
 
-    local response = http.get(url)
-    if not response then
-        error("Failed to download " .. url)
-    end
-
-    local file = fs.open(path, "w")
-    file.write(response.readAll())
-    file.close()
-    response.close()
+    print("Installed: " .. file)
 end
 
-print("Install complete!")
-print("Run: reactorController.lua")
+print("Done. Run reactorController.lua")

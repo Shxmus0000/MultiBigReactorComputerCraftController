@@ -16,3 +16,16 @@ Supports:
 ## Install
 
 Run in ComputerCraft:
+
+wget https://raw.githubusercontent.com/Shxmus0000/MultiBigReactorComputerCraftController/main/install.lua install
+install
+
+## Run
+
+reactorController.lua
+
+## Requirements
+- CC:Tweaked
+- Monitor attached
+- Reactor peripherals connected
+- HTTP enabled
